@@ -27,6 +27,7 @@ export const Route = createFileRoute("/")({
 /* ---------------- demo data ---------------- */
 
 type Message = { id: number; from: string; text: string; time: string };
+type Msg = Message & { demo?: boolean };
 
 const PARTICIPANTS = [
   "Ramesh Textiles",
@@ -134,7 +135,7 @@ function Entry({ onEnter }: { onEnter: (name: string) => void }) {
 
 /* ---------------- chat bubbles ---------------- */
 
-function PublicMessage({ msg, self }: { msg: Message; self: boolean }) {
+function PublicMessage({ msg, self }: { msg: Msg; self: boolean }) {
   return (
     <div className="px-5 py-3">
       <div className="flex items-baseline gap-2">
@@ -150,8 +151,6 @@ function PublicMessage({ msg, self }: { msg: Message; self: boolean }) {
     </div>
   );
 }
-
-type Msg = Message & { demo?: boolean };
 
 /* ---------------- main ---------------- */
 
