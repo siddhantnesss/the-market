@@ -1,21 +1,30 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  loadState,
+  saveState,
+  newId,
+  formatTime,
+  START_BALANCE,
+  PUBLIC_PRICE,
+  PRIVATE_PRICE,
+  type MarketState,
+  type Message,
+} from "@/lib/market-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "The Market — See free. Speak for ₹1." },
+      { title: "The Market — speak for ₹1, privately for ₹5" },
       {
         name: "description",
         content:
-          "One public market chat. Reading is free. Public messages cost ₹1, private messages cost ₹5. Enter with just your name.",
+          "One common public market. Reading is free. Public messages cost ₹1, private messages cost ₹5. Enter with just your name.",
       },
-      { property: "og:title", content: "The Market — See free. Speak for ₹1." },
+      { property: "og:title", content: "The Market — speak for ₹1, privately for ₹5" },
       {
         property: "og:description",
-        content:
-          "One public market chat. Reading is free. Public messages cost ₹1, private messages cost ₹5.",
+        content: "One common public market. Reading is free. Speak for ₹1, privately for ₹5.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -24,130 +33,125 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-/* ---------------- demo data ---------------- */
-
-type Message = { id: number; from: string; text: string; time: string };
-type Msg = Message & { demo?: boolean };
-
-const PARTICIPANTS = [
-  "Ramesh Textiles",
-  "Kolkata Sourcing Co",
-  "Meena Handicrafts",
-  "Surat Fabrics",
-  "AgroBulk India",
-  "Punjab Steel Works",
-  "Jaipur Gems House",
-  "Chennai Plastics",
-];
-
-const DEMO_PUBLIC: Message[] = [
-  { id: 1, from: "Ramesh Textiles", text: "Cotton shirting, 40s count, available 5000m. Tirupur. DM for rate.", time: "09:12" },
-  { id: 2, from: "Surat Fabrics", text: "What is your best rate for 2000m? Grey fabric also needed.", time: "09:14" },
-  { id: 3, from: "AgroBulk India", text: "Basmati 1121 steam, FOB Mundra. Container loads only.", time: "09:20" },
-  { id: 4, from: "Kolkata Sourcing Co", text: "Looking for jute bag manufacturer, 50k pcs monthly. Serious suppliers only.", time: "09:31" },
-  { id: 5, from: "Meena Handicrafts", text: "Export quality brass diya and decor. Diwali stock ready. MOQ 200 pcs.", time: "09:47" },
-  { id: 6, from: "Punjab Steel Works", text: "TMT bars Fe550, all sizes. Dispatch from Ludhiana within 48 hrs.", time: "10:02" },
-  { id: 7, from: "Chennai Plastics", text: "HDPE granules, virgin and regrind. Rate list on private chat.", time: "10:15" },
-  { id: 8, from: "Jaipur Gems House", text: "Wholesale silver jewellery, hallmarked. Resellers welcome.", time: "10:28" },
-  { id: 9, from: "Ramesh Textiles", text: "Surat Fabrics — sent you rates privately.", time: "10:30" },
-];
-
-const DEMO_PRIVATE: Record<string, Message[]> = {
-  "Ramesh Textiles": [
-    { id: 1, from: "Ramesh Textiles", text: "Namaste. You asked about shirting rates?", time: "10:30" },
-    { id: 2, from: "Ramesh Textiles", text: "40s count: ₹68/m for 2000m+. GST extra. Delivery 5 days.", time: "10:31" },
-  ],
-};
-
-const START_BALANCE = 50;
-const PUBLIC_PRICE = 1;
-const PRIVATE_PRICE = 5;
-
-function nowTime() {
-  return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-/* ---------------- entry screen ---------------- */
+/* ---------------- entry ---------------- */
 
 function Entry({ onEnter }: { onEnter: (name: string) => void }) {
-  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
   return (
-    <div className="flex min-h-screen flex-col bg-background px-6 py-10">
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
-        <p className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-          One market. Everyone welcome.
-        </p>
-        <h1 className="mt-6 font-display text-6xl font-black tracking-tight text-foreground">
-          THE
-          <br />
-          MARKET
-        </h1>
+    <div className="flex min-h-screen flex-col justify-center bg-background px-6 py-16">
+      <form
+        className="mx-auto w-full max-w-md"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onEnter(value.trim());
+        }}
+      >
+        <h1 className="font-display text-5xl font-black tracking-tight text-foreground">THE MARKET</h1>
+        <p className="mt-8 font-display text-2xl text-foreground">Thank you for joining.</p>
+        <p className="font-display text-2xl text-foreground">This place won&apos;t disappoint you</p>
 
-        <div className="mt-12 space-y-4 font-display text-2xl leading-snug text-foreground">
-          <p>
-            See. <span className="font-semibold">Free.</span>
-          </p>
-          <p>
-            Speak publicly. <span className="font-semibold text-accent">₹1/message.</span>
-          </p>
-          <p>
-            Talk privately. <span className="font-semibold text-accent">₹5/message.</span>
-          </p>
-        </div>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Your name"
+          aria-label="Your name"
+          autoFocus
+          className="mt-12 w-full border-b-2 border-foreground bg-transparent py-3 font-display text-2xl text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent"
+        />
 
-        <p className="mt-8 font-mono text-xs leading-relaxed text-muted-foreground">
-          The sender pays. Receiving is free. No judging what you say — the price is the only rule.
-        </p>
-
-        <form
-          className="mt-auto pt-12"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) onEnter(name.trim());
-          }}
+        <button
+          type="submit"
+          disabled={!value.trim()}
+          className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
         >
-          <label htmlFor="name" className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-            Your name
-          </label>
-          <input
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Ashok Traders"
-            autoFocus
-            className="mt-2 w-full border-b-2 border-foreground bg-transparent py-3 font-display text-2xl text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-accent"
-          />
-          <button
-            type="submit"
-            disabled={!name.trim()}
-            className="mt-8 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
-          >
-            Enter the market →
-          </button>
-          <p className="mt-4 text-center font-mono text-[11px] text-muted-foreground">
-            Demo version — you start with ₹50 of demo credit.
-          </p>
-        </form>
-      </div>
+          Enter
+        </button>
+      </form>
     </div>
   );
 }
 
-/* ---------------- chat bubbles ---------------- */
+/* ---------------- pieces ---------------- */
 
-function PublicMessage({ msg, self }: { msg: Msg; self: boolean }) {
+function MessageRow({
+  msg,
+  self,
+  onName,
+}: {
+  msg: Message;
+  self: boolean;
+  onName?: (name: string) => void;
+}) {
   return (
-    <div className="px-5 py-3">
+    <div className="py-4">
       <div className="flex items-baseline gap-2">
-        <span className={`font-mono text-xs font-medium ${self ? "text-accent" : "text-foreground"}`}>
-          {msg.from}
-        </span>
-        <span className="font-mono text-[10px] text-muted-foreground">{msg.time}</span>
-        {msg.demo && (
-          <span className="font-mono text-[9px] tracking-widest text-muted-foreground/70 uppercase">demo</span>
+        {onName && !self ? (
+          <button
+            onClick={() => onName(msg.from)}
+            className="font-mono text-xs font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {msg.from}
+          </button>
+        ) : (
+          <span className={`font-mono text-xs font-medium ${self ? "text-accent" : "text-foreground"}`}>
+            {msg.from}
+          </span>
         )}
+        <span className="font-mono text-[10px] text-muted-foreground">{formatTime(msg.at)}</span>
       </div>
-      <p className="mt-1 font-display text-lg leading-snug text-foreground">{msg.text}</p>
+      <p className="mt-1 font-display text-lg leading-snug break-words text-foreground">{msg.text}</p>
+    </div>
+  );
+}
+
+function Composer({
+  placeholder,
+  onSend,
+}: {
+  placeholder: string;
+  onSend: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      className="flex items-center gap-3 border-t border-border bg-background py-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!text.trim()) return;
+        onSend(text.trim());
+        setText("");
+      }}
+    >
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="flex-1 bg-transparent py-2 font-display text-lg text-foreground outline-none placeholder:text-muted-foreground/70"
+      />
+      <button
+        type="submit"
+        disabled={!text.trim()}
+        className="font-mono text-xs tracking-widest text-foreground uppercase transition-colors enabled:hover:text-accent disabled:opacity-40"
+      >
+        Send
+      </button>
+    </form>
+  );
+}
+
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm border border-border bg-background p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -155,212 +159,251 @@ function PublicMessage({ msg, self }: { msg: Msg; self: boolean }) {
 /* ---------------- main ---------------- */
 
 function Index() {
-  const [name, setName] = useState<string | null>(null);
-  const [balance, setBalance] = useState(START_BALANCE);
-  const [publicMsgs, setPublicMsgs] = useState<Msg[]>(DEMO_PUBLIC.map((m) => ({ ...m, demo: true })));
-  const [privateMsgs, setPrivateMsgs] = useState<Record<string, Msg[]>>(
-    Object.fromEntries(Object.entries(DEMO_PRIVATE).map(([k, v]) => [k, v.map((m) => ({ ...m, demo: true }))])),
-  );
-  const [activeChat, setActiveChat] = useState<string | null>(null); // null = public market
-  const [draft, setDraft] = useState("");
-  const idRef = useRef(100);
-  const endRef = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<MarketState | null>(null);
+  const [side, setSide] = useState<"private" | "public">("public");
+  const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [noBalance, setNoBalance] = useState(false);
+  const [nameTarget, setNameTarget] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const publicEnd = useRef<HTMLDivElement>(null);
+  const privateEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [publicMsgs, privateMsgs, activeChat]);
+    setState(loadState());
+  }, []);
 
-  if (!name) return <Entry onEnter={setName} />;
+  useEffect(() => {
+    if (state) saveState(state);
+  }, [state]);
 
-  const price = activeChat ? PRIVATE_PRICE : PUBLIC_PRICE;
-  const canAfford = balance >= price;
+  useEffect(() => {
+    publicEnd.current?.scrollIntoView({ block: "nearest" });
+    privateEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [state, activeChat, side]);
 
-  const send = () => {
-    const text = draft.trim();
-    if (!text || !canAfford) return;
-    const msg: Msg = { id: idRef.current++, from: name, text, time: nowTime() };
-    if (activeChat) {
-      setPrivateMsgs((p) => ({ ...p, [activeChat]: [...(p[activeChat] ?? []), msg] }));
-    } else {
-      setPublicMsgs((p) => [...p, msg]);
-    }
-    setBalance((b) => b - price);
-    setDraft("");
-  };
+  const conversations = useMemo(
+    () => (state ? Object.keys(state.privateMessages) : []),
+    [state],
+  );
 
-  /* ---------- private chat view ---------- */
-  if (activeChat) {
-    const msgs = privateMsgs[activeChat] ?? [];
+  if (!state) return <div className="min-h-screen bg-background" />;
+
+  if (!state.name) {
     return (
-      <div className="flex min-h-screen flex-col bg-background">
-        <header className="sticky top-0 z-10 border-b border-border bg-background">
-          <div className="mx-auto flex w-full max-w-2xl items-center gap-3 px-5 py-4">
-            <button
-              onClick={() => setActiveChat(null)}
-              aria-label="Back to market"
-              className="text-foreground transition-colors hover:text-accent"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div className="flex-1">
-              <p className="font-display text-lg font-semibold text-foreground">{activeChat}</p>
-              <p className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-                Private · ₹5/message · only you two see this
-              </p>
-            </div>
-            <p className="font-mono text-sm text-foreground">₹{balance}</p>
-          </div>
-        </header>
-
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col divide-y divide-border/60">
-          {msgs.length === 0 && (
-            <p className="px-5 py-8 font-mono text-xs text-muted-foreground">
-              No messages yet. Your first word costs ₹5.
-            </p>
-          )}
-          {msgs.map((m) => (
-            <PublicMessage key={m.id} msg={m} self={m.from === name} />
-          ))}
-          <div ref={endRef} />
-        </main>
-
-        <Composer
-          draft={draft}
-          setDraft={setDraft}
-          onSend={send}
-          price={price}
-          canAfford={canAfford}
-          onTopUp={() => setBalance((b) => b + 50)}
-          placeholder={`Message ${activeChat}…`}
-        />
-      </div>
+      <Entry
+        onEnter={(name) =>
+          setState((s) => ({ ...(s as MarketState), name, balance: s?.balance ?? START_BALANCE }))
+        }
+      />
     );
   }
 
-  /* ---------- public market view ---------- */
+  const me = state.name;
+
+  const sendPublic = (text: string) => {
+    if (state.balance < PUBLIC_PRICE) return setNoBalance(true);
+    setState((s) => {
+      const cur = s as MarketState;
+      return {
+        ...cur,
+        balance: cur.balance - PUBLIC_PRICE,
+        publicMessages: [...cur.publicMessages, { id: newId(), from: me, text, at: Date.now() }],
+      };
+    });
+  };
+
+  const sendPrivate = (to: string, text: string) => {
+    if (state.balance < PRIVATE_PRICE) return setNoBalance(true);
+    setState((s) => {
+      const cur = s as MarketState;
+      return {
+        ...cur,
+        balance: cur.balance - PRIVATE_PRICE,
+        privateMessages: {
+          ...cur.privateMessages,
+          [to]: [...(cur.privateMessages[to] ?? []), { id: newId(), from: me, text, at: Date.now() }],
+        },
+      };
+    });
+  };
+
+  const openPrivate = (who: string) => {
+    setState((s) => {
+      const cur = s as MarketState;
+      if (cur.privateMessages[who]) return cur;
+      return { ...cur, privateMessages: { ...cur.privateMessages, [who]: [] } };
+    });
+    setActiveChat(who);
+    setSide("private");
+    setNameTarget(null);
+  };
+
+  const activeMsgs = activeChat ? (state.privateMessages[activeChat] ?? []) : [];
+
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="sticky top-0 z-10 border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-2xl px-5 py-4">
-          <div className="flex items-baseline justify-between">
-            <h1 className="font-display text-2xl font-black tracking-tight text-foreground">THE MARKET</h1>
-            <div className="text-right">
-              <p className="font-mono text-sm font-medium text-foreground">₹{balance}</p>
-              <p className="font-mono text-[10px] tracking-widest text-muted-foreground uppercase">demo credit</p>
-            </div>
-          </div>
-          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-            Public floor · speak for <span className="text-accent">₹1/message</span> · signed in as {name}
-          </p>
-
-          {/* participants */}
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {[name, ...PARTICIPANTS].map((p) => (
-              <button
-                key={p}
-                onClick={() => p !== name && setActiveChat(p)}
-                disabled={p === name}
-                className={`shrink-0 border px-3 py-1.5 font-mono text-xs whitespace-nowrap transition-colors ${
-                  p === name
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border text-foreground hover:border-accent hover:text-accent"
-                }`}
-              >
-                {p === name ? `${p} (you)` : p}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-            Tap a name to talk privately · ₹5/message
-          </p>
-        </div>
-      </header>
-
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col divide-y divide-border/60">
-        <p className="bg-muted px-5 py-2 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
-          Conversation below is demo data — the floor resets soon
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-5xl px-5 py-6">
+        {/* header */}
+        <header className="flex items-baseline justify-between">
+          <h1 className="font-display text-2xl font-black tracking-tight text-foreground">THE MARKET</h1>
+          <p className="font-mono text-sm text-foreground">₹{state.balance}</p>
+        </header>
+        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+          {me} ·{" "}
+          <button
+            onClick={() => {
+              setNameDraft(me);
+              setEditingName(true);
+            }}
+            className="underline underline-offset-2 hover:text-accent"
+          >
+            edit name
+          </button>
         </p>
-        {publicMsgs.map((m) => (
-          <PublicMessage key={m.id} msg={m} self={m.from === name} />
-        ))}
-        <div ref={endRef} />
-      </main>
 
-      <Composer
-        draft={draft}
-        setDraft={setDraft}
-        onSend={send}
-        price={price}
-        canAfford={canAfford}
-        onTopUp={() => setBalance((b) => b + 50)}
-        placeholder="Say it to the whole market…"
-      />
-    </div>
-  );
-}
+        {/* two parts */}
+        <div className="mt-6 grid grid-cols-2 gap-6 md:gap-10">
+          <button
+            onClick={() => setSide("private")}
+            className={`border-b-2 pb-2 text-left font-mono text-xs tracking-widest uppercase transition-colors ${
+              side === "private" ? "border-foreground text-foreground" : "border-border text-muted-foreground"
+            }`}
+          >
+            Private Market
+          </button>
+          <button
+            onClick={() => setSide("public")}
+            className={`border-b-2 pb-2 text-left font-mono text-xs tracking-widest uppercase transition-colors ${
+              side === "public" ? "border-foreground text-foreground" : "border-border text-muted-foreground"
+            }`}
+          >
+            Public Market
+          </button>
+        </div>
 
-/* ---------------- composer ---------------- */
+        <div className="mt-6 grid grid-cols-1 gap-10 md:grid-cols-2">
+          {/* PRIVATE */}
+          <section className={`${side === "private" ? "block" : "hidden"} md:block`}>
+            {!activeChat ? (
+              <>
+                {conversations.length === 0 ? (
+                  <p className="font-mono text-xs text-muted-foreground">
+                    no private conversations yet — tap a name in the public market
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border/60">
+                    {conversations.map((c) => (
+                      <li key={c}>
+                        <button
+                          onClick={() => setActiveChat(c)}
+                          className="w-full py-4 text-left font-display text-lg text-foreground hover:text-accent"
+                        >
+                          {c}
+                          <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                            {(state.privateMessages[c] ?? []).length} messages
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline justify-between">
+                  <p className="font-display text-lg font-semibold text-foreground">{activeChat}</p>
+                  <button
+                    onClick={() => setActiveChat(null)}
+                    className="font-mono text-[11px] text-muted-foreground uppercase hover:text-accent"
+                  >
+                    back
+                  </button>
+                </div>
+                <div className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto">
+                  {activeMsgs.map((m) => (
+                    <MessageRow key={m.id} msg={m} self={m.from === me} />
+                  ))}
+                  <div ref={privateEnd} />
+                </div>
+                <Composer
+                  placeholder="write a message — ₹5"
+                  onSend={(t) => sendPrivate(activeChat, t)}
+                />
+              </>
+            )}
+          </section>
 
-function Composer({
-  draft,
-  setDraft,
-  onSend,
-  price,
-  canAfford,
-  onTopUp,
-  placeholder,
-}: {
-  draft: string;
-  setDraft: (v: string) => void;
-  onSend: () => void;
-  price: number;
-  canAfford: boolean;
-  onTopUp: () => void;
-  placeholder: string;
-}) {
-  return (
-    <footer className="sticky bottom-0 border-t border-border bg-background">
-      <div className="mx-auto w-full max-w-2xl px-5 py-4">
-        {canAfford ? (
+          {/* PUBLIC */}
+          <section className={`${side === "public" ? "block" : "hidden"} md:block`}>
+            <div className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto">
+              {state.publicMessages.length === 0 ? (
+                <p className="py-4 font-display text-lg text-muted-foreground">the market is waiting...</p>
+              ) : (
+                state.publicMessages.map((m) => (
+                  <MessageRow key={m.id} msg={m} self={m.from === me} onName={setNameTarget} />
+                ))
+              )}
+              <div ref={publicEnd} />
+            </div>
+            <Composer placeholder="write something — ₹1" onSend={sendPublic} />
+          </section>
+        </div>
+      </div>
+
+      {noBalance && (
+        <Modal onClose={() => setNoBalance(false)}>
+          <p className="font-display text-2xl text-foreground">not enough balance</p>
+          <button
+            onClick={() => setNoBalance(false)}
+            className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
+          >
+            Close
+          </button>
+        </Modal>
+      )}
+
+      {nameTarget && (
+        <Modal onClose={() => setNameTarget(null)}>
+          <p className="font-display text-2xl text-foreground">{nameTarget}</p>
+          <button
+            onClick={() => openPrivate(nameTarget)}
+            className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
+          >
+            Talk privately — ₹5/message
+          </button>
+        </Modal>
+      )}
+
+      {editingName && (
+        <Modal onClose={() => setEditingName(false)}>
           <form
-            className="flex items-end gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              onSend();
+              const n = nameDraft.trim();
+              if (!n) return;
+              setState((s) => ({ ...(s as MarketState), name: n }));
+              setEditingName(false);
             }}
           >
+            <label className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
+              Your name
+            </label>
             <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={placeholder}
-              className="flex-1 border-b-2 border-foreground bg-transparent py-2 font-display text-lg text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-accent"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              autoFocus
+              className="mt-2 w-full border-b-2 border-foreground bg-transparent py-2 font-display text-xl text-foreground outline-none"
             />
             <button
               type="submit"
-              disabled={!draft.trim()}
-              className="flex items-center gap-2 bg-primary px-4 py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
+              className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
             >
-              Send ₹{price}
-              <ArrowUp className="h-4 w-4" />
+              Save
             </button>
           </form>
-        ) : (
-          <div className="flex items-center justify-between gap-3">
-            <p className="font-mono text-xs text-muted-foreground">
-              Out of credit. A message costs ₹{price}.
-            </p>
-            <button
-              onClick={onTopUp}
-              className="bg-primary px-4 py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase transition-colors hover:bg-accent"
-            >
-              Add ₹50 demo credit
-            </button>
-          </div>
-        )}
-        <p className="mt-2 text-center font-mono text-[10px] text-muted-foreground">
-          You pay to send. Reading is always free.
-        </p>
-      </div>
-    </footer>
+        </Modal>
+      )}
+    </div>
   );
 }
