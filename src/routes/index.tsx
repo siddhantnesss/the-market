@@ -327,7 +327,7 @@ function Index() {
                   <div ref={privateEnd} />
                 </div>
                 <Composer
-                  placeholder="write a message — ₹5"
+                  placeholder="write a message - ₹5"
                   onSend={(t) => sendPrivate(activeChat, t)}
                 />
               </>
@@ -346,7 +346,7 @@ function Index() {
               )}
               <div ref={publicEnd} />
             </div>
-            <Composer placeholder="write something — ₹1" onSend={sendPublic} />
+            <Composer placeholder="write something - ₹1" onSend={sendPublic} />
           </section>
         </div>
       </div>
