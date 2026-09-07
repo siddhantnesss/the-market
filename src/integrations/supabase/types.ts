@@ -97,60 +97,6 @@ export type Database = {
           },
         ]
       }
-      market_private_messages: {
-        Row: {
-          created_at: string
-          id: string
-          recipient_client_id: string
-          recipient_name: string
-          sender_client_id: string
-          sender_name: string
-          text: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          recipient_client_id: string
-          recipient_name: string
-          sender_client_id: string
-          sender_name: string
-          text: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          recipient_client_id?: string
-          recipient_name?: string
-          sender_client_id?: string
-          sender_name?: string
-          text?: string
-        }
-        Relationships: []
-      }
-      market_public_messages: {
-        Row: {
-          client_id: string
-          created_at: string
-          id: string
-          sender_name: string
-          text: string
-        }
-        Insert: {
-          client_id: string
-          created_at?: string
-          id?: string
-          sender_name: string
-          text: string
-        }
-        Update: {
-          client_id?: string
-          created_at?: string
-          id?: string
-          sender_name?: string
-          text?: string
-        }
-        Relationships: []
-      }
       market_unlocks: {
         Row: {
           account_id: string
@@ -186,33 +132,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      market_users: {
-        Row: {
-          balance: number
-          client_id: string
-          created_at: string
-          id: string
-          name: string
-          updated_at: string
-        }
-        Insert: {
-          balance?: number
-          client_id: string
-          created_at?: string
-          id?: string
-          name: string
-          updated_at?: string
-        }
-        Update: {
-          balance?: number
-          client_id?: string
-          created_at?: string
-          id?: string
-          name?: string
-          updated_at?: string
-        }
-        Relationships: []
       }
       market_wallet_entries: {
         Row: {
