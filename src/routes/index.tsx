@@ -1,30 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useState } from "react";
+
 import {
-  loadState,
-  saveState,
-  newId,
-  formatTime,
-  START_BALANCE,
-  PUBLIC_PRICE,
-  PRIVATE_PRICE,
-  type MarketState,
-  type Message,
-} from "@/lib/market-store";
+  enterMarket,
+  getAccount,
+  renameAccount,
+  listMarket,
+  createListing,
+  unlockListing,
+  type Account,
+  type Listing,
+} from "@/lib/market.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "The Market — speak for ₹1, privately for ₹5" },
+      { title: "THE MARKET — We help you find buyers." },
       {
         name: "description",
         content:
-          "One common public market. Reading is free. Public messages cost ₹1, private messages cost ₹5. Enter with just your name.",
+          "List what you have to sell and let serious buyers find you. Enter with your name and a ₹1,000 trial balance.",
       },
-      { property: "og:title", content: "The Market — speak for ₹1, privately for ₹5" },
+      { property: "og:title", content: "THE MARKET — We help you find buyers." },
       {
         property: "og:description",
-        content: "One common public market. Reading is free. Speak for ₹1, privately for ₹5.",
+        content: "List what you have to sell and let serious buyers find you.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -33,112 +34,18 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-/* ---------------- entry ---------------- */
+const CLIENT_KEY = "the-market:client";
 
-function Entry({ onEnter }: { onEnter: (name: string) => void }) {
-  const [value, setValue] = useState("");
-  return (
-    <div className="flex min-h-screen flex-col justify-center bg-background px-6 py-16">
-      <form
-        className="mx-auto w-full max-w-md"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (value.trim()) onEnter(value.trim());
-        }}
-      >
-        <h1 className="font-display text-5xl font-black tracking-tight text-foreground">THE MARKET</h1>
-        <p className="mt-8 font-display text-2xl text-foreground">Thank you for joining.</p>
-        <p className="font-display text-2xl text-foreground">This place won&apos;t disappoint you</p>
-
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Your name"
-          aria-label="Your name"
-          autoFocus
-          className="mt-12 w-full border-b-2 border-foreground bg-transparent py-3 font-display text-2xl text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent"
-        />
-
-        <button
-          type="submit"
-          disabled={!value.trim()}
-          className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
-        >
-          Enter
-        </button>
-      </form>
-    </div>
-  );
+function getClientId(): string {
+  let id = window.localStorage.getItem(CLIENT_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    window.localStorage.setItem(CLIENT_KEY, id);
+  }
+  return id;
 }
 
-/* ---------------- pieces ---------------- */
-
-function MessageRow({
-  msg,
-  self,
-  onName,
-}: {
-  msg: Message;
-  self: boolean;
-  onName?: (name: string) => void;
-}) {
-  return (
-    <div className="py-4">
-      <div className="flex items-baseline gap-2">
-        {onName && !self ? (
-          <button
-            onClick={() => onName(msg.from)}
-            className="font-mono text-xs font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            {msg.from}
-          </button>
-        ) : (
-          <span className={`font-mono text-xs font-medium ${self ? "text-accent" : "text-foreground"}`}>
-            {msg.from}
-          </span>
-        )}
-        <span className="font-mono text-[10px] text-muted-foreground">{formatTime(msg.at)}</span>
-      </div>
-      <p className="mt-1 font-display text-lg leading-snug break-words text-foreground">{msg.text}</p>
-    </div>
-  );
-}
-
-function Composer({
-  placeholder,
-  onSend,
-}: {
-  placeholder: string;
-  onSend: (text: string) => void;
-}) {
-  const [text, setText] = useState("");
-  return (
-    <form
-      className="flex items-center gap-3 border-t border-border bg-background py-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!text.trim()) return;
-        onSend(text.trim());
-        setText("");
-      }}
-    >
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        className="flex-1 bg-transparent py-2 font-display text-lg text-foreground outline-none placeholder:text-muted-foreground/70"
-      />
-      <button
-        type="submit"
-        disabled={!text.trim()}
-        className="font-mono text-xs tracking-widest text-foreground uppercase transition-colors enabled:hover:text-accent disabled:opacity-40"
-      >
-        Send
-      </button>
-    </form>
-  );
-}
+/* ---------------- shared pieces ---------------- */
 
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
@@ -156,104 +63,268 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   );
 }
 
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  textarea,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  textarea?: boolean;
+}) {
+  const cls =
+    "mt-2 w-full border-b border-border bg-transparent py-2 font-display text-lg text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent";
+  return (
+    <label className="block">
+      <span className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+        {label}
+      </span>
+      {textarea ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          aria-label={label}
+          rows={3}
+          className={`${cls} resize-none`}
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          aria-label={label}
+          className={cls}
+        />
+      )}
+    </label>
+  );
+}
+
+/* ---------------- entry ---------------- */
+
+function Entry({ onEnter, busy }: { onEnter: (name: string) => void; busy: boolean }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="flex min-h-screen flex-col justify-center bg-background px-6 py-16">
+      <form
+        className="mx-auto w-full max-w-md"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onEnter(value.trim());
+        }}
+      >
+        <h1 className="font-display text-5xl font-black tracking-tight text-foreground">
+          THE MARKET
+        </h1>
+        <p className="mt-6 font-display text-2xl text-foreground">We help you find buyers.</p>
+
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Your name"
+          aria-label="Your name"
+          autoFocus
+          className="mt-14 w-full border-b-2 border-foreground bg-transparent py-3 font-display text-2xl text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent"
+        />
+
+        <p className="mt-6 font-mono text-xs tracking-widest text-muted-foreground uppercase">
+          Trial money: ₹1,000
+        </p>
+
+        <button
+          type="submit"
+          disabled={!value.trim() || busy}
+          className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
+        >
+          {busy ? "Entering" : "Enter"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ---------------- listings ---------------- */
+
+function ListingRow({
+  listing,
+  onUnlock,
+  busy,
+}: {
+  listing: Listing;
+  onUnlock: (l: Listing) => void;
+  busy: boolean;
+}) {
+  return (
+    <article className="border-t border-border py-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 className="font-display text-2xl leading-snug text-foreground">{listing.title}</h3>
+        {listing.price ? (
+          <p className="font-mono text-sm text-foreground">{listing.price}</p>
+        ) : null}
+      </div>
+
+      <p className="mt-3 max-w-2xl font-display text-lg leading-relaxed text-foreground/80">
+        {listing.details}
+      </p>
+
+      <p className="mt-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+        {[listing.quantity, listing.location].filter(Boolean).join(" · ")}
+        {listing.isSample ? (listing.quantity || listing.location ? " · sample" : "sample") : ""}
+      </p>
+
+      <div className="mt-5">
+        {listing.unlocked && listing.contact ? (
+          <p className="font-mono text-sm text-foreground">
+            {listing.mine ? "Your contact — " : ""}
+            {listing.contact}
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-4">
+            <p className="font-mono text-xs text-muted-foreground">
+              Seller: {listing.sellerName.split(" ")[0]} ····
+            </p>
+            <button
+              onClick={() => onUnlock(listing)}
+              disabled={busy}
+              className="font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 transition-colors hover:text-accent disabled:opacity-40"
+            >
+              Get contact — ₹1,000
+            </button>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 /* ---------------- main ---------------- */
 
 function Index() {
-  const [state, setState] = useState<MarketState | null>(null);
-  const [side, setSide] = useState<"private" | "public">("public");
-  const [activeChat, setActiveChat] = useState<string | null>(null);
-  const [noBalance, setNoBalance] = useState(false);
-  const [nameTarget, setNameTarget] = useState<string | null>(null);
+  const enterFn = useServerFn(enterMarket);
+  const getAccountFn = useServerFn(getAccount);
+  const renameFn = useServerFn(renameAccount);
+  const listFn = useServerFn(listMarket);
+  const createFn = useServerFn(createListing);
+  const unlockFn = useServerFn(unlockListing);
+
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [mode, setMode] = useState<"buy" | "sell">("buy");
+  const [lowBalance, setLowBalance] = useState(false);
+  const [confirmUnlock, setConfirmUnlock] = useState<Listing | null>(null);
+  const [listed, setListed] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
-  const publicEnd = useRef<HTMLDivElement>(null);
-  const privateEnd = useRef<HTMLDivElement>(null);
+  const [form, setForm] = useState({
+    title: "",
+    details: "",
+    price: "",
+    quantity: "",
+    location: "",
+    contact: "",
+  });
 
   useEffect(() => {
-    setState(loadState());
-  }, []);
+    const id = getClientId();
+    setClientId(id);
+    void (async () => {
+      try {
+        const acc = await getAccountFn({ data: { clientId: id } });
+        setAccount(acc);
+        if (acc) setListings(await listFn({ data: { clientId: id } }));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getAccountFn, listFn]);
 
-  useEffect(() => {
-    if (state) saveState(state);
-  }, [state]);
+  const refresh = async (id: string) => {
+    const [acc, rows] = await Promise.all([
+      getAccountFn({ data: { clientId: id } }),
+      listFn({ data: { clientId: id } }),
+    ]);
+    setAccount(acc);
+    setListings(rows);
+  };
 
-  useEffect(() => {
-    publicEnd.current?.scrollIntoView({ block: "nearest" });
-    privateEnd.current?.scrollIntoView({ block: "nearest" });
-  }, [state, activeChat, side]);
+  if (loading) return <div className="min-h-screen bg-background" />;
 
-  const conversations = useMemo(
-    () => (state ? Object.keys(state.privateMessages) : []),
-    [state],
-  );
-
-  if (!state) return <div className="min-h-screen bg-background" />;
-
-  if (!state.name) {
+  if (!account || !clientId) {
     return (
       <Entry
-        onEnter={(name) =>
-          setState((s) => ({ ...(s as MarketState), name, balance: s?.balance ?? START_BALANCE }))
-        }
+        busy={busy}
+        onEnter={async (name) => {
+          if (!clientId) return;
+          setBusy(true);
+          try {
+            const acc = await enterFn({ data: { clientId, name } });
+            setAccount(acc);
+            setListings(await listFn({ data: { clientId } }));
+          } finally {
+            setBusy(false);
+          }
+        }}
       />
     );
   }
 
-  const me = state.name;
-
-  const sendPublic = (text: string) => {
-    if (state.balance < PUBLIC_PRICE) return setNoBalance(true);
-    setState((s) => {
-      const cur = s as MarketState;
-      return {
-        ...cur,
-        balance: cur.balance - PUBLIC_PRICE,
-        publicMessages: [...cur.publicMessages, { id: newId(), from: me, text, at: Date.now() }],
-      };
-    });
+  const submitListing = async () => {
+    if (!form.title.trim() || !form.details.trim() || !form.contact.trim()) return;
+    setBusy(true);
+    try {
+      const res = await createFn({ data: { clientId, ...form } });
+      if (!res.ok) {
+        if (res.reason === "balance") setLowBalance(true);
+        return;
+      }
+      setForm({ title: "", details: "", price: "", quantity: "", location: "", contact: "" });
+      setListed(true);
+      await refresh(clientId);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const sendPrivate = (to: string, text: string) => {
-    if (state.balance < PRIVATE_PRICE) return setNoBalance(true);
-    setState((s) => {
-      const cur = s as MarketState;
-      return {
-        ...cur,
-        balance: cur.balance - PRIVATE_PRICE,
-        privateMessages: {
-          ...cur.privateMessages,
-          [to]: [...(cur.privateMessages[to] ?? []), { id: newId(), from: me, text, at: Date.now() }],
-        },
-      };
-    });
+  const doUnlock = async (listing: Listing) => {
+    setBusy(true);
+    try {
+      const res = await unlockFn({ data: { clientId, listingId: listing.id } });
+      setConfirmUnlock(null);
+      if (!res.ok) {
+        if (res.reason === "balance") setLowBalance(true);
+        return;
+      }
+      await refresh(clientId);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const openPrivate = (who: string) => {
-    setState((s) => {
-      const cur = s as MarketState;
-      if (cur.privateMessages[who]) return cur;
-      return { ...cur, privateMessages: { ...cur.privateMessages, [who]: [] } };
-    });
-    setActiveChat(who);
-    setSide("private");
-    setNameTarget(null);
-  };
-
-  const activeMsgs = activeChat ? (state.privateMessages[activeChat] ?? []) : [];
+  const myListings = listings.filter((l) => l.mine);
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-5xl px-5 py-6">
-        {/* header */}
-        <header className="flex items-baseline justify-between">
-          <h1 className="font-display text-2xl font-black tracking-tight text-foreground">THE MARKET</h1>
-          <p className="font-mono text-sm text-foreground">₹{state.balance}</p>
+      <div className="mx-auto w-full max-w-3xl px-5 py-8 md:py-12">
+        <header className="flex items-baseline justify-between gap-4">
+          <h1 className="font-display text-2xl font-black tracking-tight text-foreground">
+            THE MARKET
+          </h1>
+          <p className="font-mono text-sm text-foreground">₹{account.balance.toLocaleString("en-IN")}</p>
         </header>
+
         <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-          {me} ·{" "}
+          {account.name} ·{" "}
           <button
             onClick={() => {
-              setNameDraft(me);
+              setNameDraft(account.name);
               setEditingName(true);
             }}
             className="underline underline-offset-2 hover:text-accent"
@@ -262,148 +333,194 @@ function Index() {
           </button>
         </p>
 
-        {/* two parts */}
-        <div className="mt-6 grid grid-cols-2 gap-6 md:gap-10">
-          <button
-            onClick={() => setSide("private")}
-            className={`border-b-2 pb-2 text-left font-mono text-xs tracking-widest uppercase transition-colors ${
-              side === "private" ? "border-foreground text-foreground" : "border-border text-muted-foreground"
-            }`}
-          >
-            Private Market
-          </button>
-          <button
-            onClick={() => setSide("public")}
-            className={`border-b-2 pb-2 text-left font-mono text-xs tracking-widest uppercase transition-colors ${
-              side === "public" ? "border-foreground text-foreground" : "border-border text-muted-foreground"
-            }`}
-          >
-            Public Market
-          </button>
-        </div>
+        <nav className="mt-10 flex gap-8">
+          {(["buy", "sell"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => {
+                setMode(m);
+                setListed(false);
+              }}
+              className={`border-b-2 pb-2 font-mono text-xs tracking-widest uppercase transition-colors ${
+                mode === m
+                  ? "border-foreground text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {m === "buy" ? "Buy" : "Sell"}
+            </button>
+          ))}
+        </nav>
 
-        <div className="mt-6 grid grid-cols-1 gap-10 md:grid-cols-2">
-          {/* PRIVATE */}
-          <section className={`${side === "private" ? "block" : "hidden"} md:block`}>
-            {!activeChat ? (
-              <>
-                {conversations.length === 0 ? (
-                  <p className="font-mono text-xs text-muted-foreground">
-                    no private conversations yet — tap a name in the public market
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border/60">
-                    {conversations.map((c) => (
-                      <li key={c}>
-                        <button
-                          onClick={() => setActiveChat(c)}
-                          className="w-full py-4 text-left font-display text-lg text-foreground hover:text-accent"
-                        >
-                          {c}
-                          <span className="ml-2 font-mono text-[10px] text-muted-foreground">
-                            {(state.privateMessages[c] ?? []).length} messages
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
+        {mode === "buy" ? (
+          <section className="mt-8">
+            {listings.length === 0 ? (
+              <p className="border-t border-border py-8 font-display text-lg text-muted-foreground">
+                nothing on offer yet
+              </p>
             ) : (
-              <>
-                <div className="flex items-baseline justify-between">
-                  <p className="font-display text-lg font-semibold text-foreground">{activeChat}</p>
-                  <button
-                    onClick={() => setActiveChat(null)}
-                    className="font-mono text-[11px] text-muted-foreground uppercase hover:text-accent"
-                  >
-                    back
-                  </button>
-                </div>
-                <div className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto">
-                  {activeMsgs.map((m) => (
-                    <MessageRow key={m.id} msg={m} self={m.from === me} />
-                  ))}
-                  <div ref={privateEnd} />
-                </div>
-                <Composer
-                  placeholder="write a message - ₹5"
-                  onSend={(t) => sendPrivate(activeChat, t)}
+              listings.map((l) => (
+                <ListingRow
+                  key={l.id}
+                  listing={l}
+                  busy={busy}
+                  onUnlock={(x) =>
+                    account.balance < 1000 ? setLowBalance(true) : setConfirmUnlock(x)
+                  }
                 />
-              </>
+              ))
             )}
           </section>
+        ) : (
+          <section className="mt-8">
+            {listed ? (
+              <div className="border-t border-border py-8">
+                <p className="font-display text-2xl text-foreground">You are in the market.</p>
+                <p className="mt-2 font-mono text-xs text-muted-foreground">
+                  ₹1,000 paid. Buyers pay ₹1,000 each to reach you.
+                </p>
+                <button
+                  onClick={() => {
+                    setListed(false);
+                    setMode("buy");
+                  }}
+                  className="mt-6 font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 hover:text-accent"
+                >
+                  See the market
+                </button>
+              </div>
+            ) : (
+              <div className="border-t border-border pt-8">
+                <h2 className="font-display text-2xl text-foreground">What are you selling?</h2>
+                <div className="mt-8 space-y-7">
+                  <Field
+                    label="What you have"
+                    value={form.title}
+                    onChange={(v) => setForm((f) => ({ ...f, title: v }))}
+                    placeholder="Cotton yarn 30s combed"
+                  />
+                  <Field
+                    label="Details"
+                    textarea
+                    value={form.details}
+                    onChange={(v) => setForm((f) => ({ ...f, details: v }))}
+                    placeholder="Quality, condition, how soon you can supply"
+                  />
+                  <Field
+                    label="Price"
+                    value={form.price}
+                    onChange={(v) => setForm((f) => ({ ...f, price: v }))}
+                    placeholder="₹268 / kg"
+                  />
+                  <Field
+                    label="Quantity"
+                    value={form.quantity}
+                    onChange={(v) => setForm((f) => ({ ...f, quantity: v }))}
+                    placeholder="18 tonnes"
+                  />
+                  <Field
+                    label="Where"
+                    value={form.location}
+                    onChange={(v) => setForm((f) => ({ ...f, location: v }))}
+                    placeholder="Ludhiana, Punjab"
+                  />
+                  <Field
+                    label="Your contact (shown only to paid buyers)"
+                    value={form.contact}
+                    onChange={(v) => setForm((f) => ({ ...f, contact: v }))}
+                    placeholder="Name, phone, email"
+                  />
+                </div>
 
-          {/* PUBLIC */}
-          <section className={`${side === "public" ? "block" : "hidden"} md:block`}>
-            <div className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto">
-              {state.publicMessages.length === 0 ? (
-                <p className="py-4 font-display text-lg text-muted-foreground">the market is waiting...</p>
-              ) : (
-                state.publicMessages.map((m) => (
-                  <MessageRow key={m.id} msg={m} self={m.from === me} onName={setNameTarget} />
-                ))
-              )}
-              <div ref={publicEnd} />
-            </div>
-            <Composer placeholder="write something - ₹1" onSend={sendPublic} />
+                <button
+                  onClick={submitListing}
+                  disabled={
+                    busy || !form.title.trim() || !form.details.trim() || !form.contact.trim()
+                  }
+                  className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40 sm:w-auto sm:px-10"
+                >
+                  {busy ? "Listing" : "List it — ₹1,000"}
+                </button>
+
+                {myListings.length > 0 ? (
+                  <div className="mt-16">
+                    <p className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+                      Your listings
+                    </p>
+                    {myListings.map((l) => (
+                      <ListingRow key={l.id} listing={l} busy={busy} onUnlock={() => {}} />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </section>
-        </div>
+        )}
       </div>
 
-      {noBalance && (
-        <Modal onClose={() => setNoBalance(false)}>
-          <p className="font-display text-2xl text-foreground">not enough balance</p>
+      {confirmUnlock ? (
+        <Modal onClose={() => setConfirmUnlock(null)}>
+          <p className="font-display text-xl text-foreground">{confirmUnlock.title}</p>
+          <p className="mt-3 font-mono text-xs text-muted-foreground">
+            ₹1,000 to see the seller&apos;s contact details.
+          </p>
+          <div className="mt-8 flex gap-6">
+            <button
+              onClick={() => doUnlock(confirmUnlock)}
+              disabled={busy}
+              className="bg-primary px-6 py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase enabled:hover:bg-accent disabled:opacity-40"
+            >
+              Pay ₹1,000
+            </button>
+            <button
+              onClick={() => setConfirmUnlock(null)}
+              className="font-mono text-xs tracking-widest text-muted-foreground uppercase hover:text-foreground"
+            >
+              Not now
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {lowBalance ? (
+        <Modal onClose={() => setLowBalance(false)}>
+          <p className="font-display text-xl text-foreground">not enough balance</p>
           <button
-            onClick={() => setNoBalance(false)}
-            className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
+            onClick={() => setLowBalance(false)}
+            className="mt-8 font-mono text-xs tracking-widest text-muted-foreground uppercase hover:text-foreground"
           >
             Close
           </button>
         </Modal>
-      )}
+      ) : null}
 
-      {nameTarget && (
-        <Modal onClose={() => setNameTarget(null)}>
-          <p className="font-display text-2xl text-foreground">{nameTarget}</p>
-          <button
-            onClick={() => openPrivate(nameTarget)}
-            className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
-          >
-            Talk privately — ₹5/message
-          </button>
-        </Modal>
-      )}
-
-      {editingName && (
+      {editingName ? (
         <Modal onClose={() => setEditingName(false)}>
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              const n = nameDraft.trim();
-              if (!n) return;
-              setState((s) => ({ ...(s as MarketState), name: n }));
+              if (!nameDraft.trim()) return;
+              const acc = await renameFn({ data: { clientId, name: nameDraft.trim() } });
+              setAccount(acc);
               setEditingName(false);
             }}
           >
-            <label className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
-              Your name
-            </label>
             <input
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
+              aria-label="Your name"
               autoFocus
-              className="mt-2 w-full border-b-2 border-foreground bg-transparent py-2 font-display text-xl text-foreground outline-none"
+              className="w-full border-b-2 border-foreground bg-transparent py-2 font-display text-xl text-foreground outline-none"
             />
             <button
               type="submit"
-              className="mt-6 w-full bg-primary py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase hover:bg-accent"
+              className="mt-8 font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 hover:text-accent"
             >
               Save
             </button>
           </form>
         </Modal>
-      )}
+      ) : null}
     </div>
   );
 }
