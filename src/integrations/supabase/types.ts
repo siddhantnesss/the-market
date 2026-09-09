@@ -14,176 +14,99 @@ export type Database = {
   }
   public: {
     Tables: {
-      market_accounts: {
+      listings: {
         Row: {
-          balance: number
-          client_id: string
+          contact: string
           created_at: string
+          deleted: boolean
+          expires_at: string
+          hidden: boolean
           id: string
-          name: string
-          trial_granted: boolean
+          photos: Json
+          product_name: string
+          specifications: string
           updated_at: string
         }
         Insert: {
-          balance?: number
-          client_id: string
+          contact?: string
           created_at?: string
+          deleted?: boolean
+          expires_at?: string
+          hidden?: boolean
           id?: string
-          name: string
-          trial_granted?: boolean
+          photos?: Json
+          product_name?: string
+          specifications?: string
           updated_at?: string
         }
         Update: {
-          balance?: number
-          client_id?: string
+          contact?: string
           created_at?: string
+          deleted?: boolean
+          expires_at?: string
+          hidden?: boolean
           id?: string
-          name?: string
-          trial_granted?: boolean
+          photos?: Json
+          product_name?: string
+          specifications?: string
           updated_at?: string
         }
         Relationships: []
       }
-      market_listings: {
+      site_settings: {
         Row: {
-          account_id: string | null
-          contact: string
-          created_at: string
-          details: string
-          id: string
-          is_sample: boolean
-          location: string
-          price: string
-          quantity: string
-          seller_name: string
-          title: string
+          key: string
           updated_at: string
+          value: Json
         }
         Insert: {
-          account_id?: string | null
-          contact: string
-          created_at?: string
-          details: string
-          id?: string
-          is_sample?: boolean
-          location?: string
-          price?: string
-          quantity?: string
-          seller_name: string
-          title: string
+          key: string
           updated_at?: string
+          value?: Json
         }
         Update: {
-          account_id?: string | null
-          contact?: string
-          created_at?: string
-          details?: string
-          id?: string
-          is_sample?: boolean
-          location?: string
-          price?: string
-          quantity?: string
-          seller_name?: string
-          title?: string
+          key?: string
           updated_at?: string
+          value?: Json
         }
-        Relationships: [
-          {
-            foreignKeyName: "market_listings_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "market_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
-      market_unlocks: {
+      user_roles: {
         Row: {
-          account_id: string
           created_at: string
           id: string
-          listing_id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
         }
         Insert: {
-          account_id: string
           created_at?: string
           id?: string
-          listing_id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
         }
         Update: {
-          account_id?: string
           created_at?: string
           id?: string
-          listing_id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "market_unlocks_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "market_accounts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "market_unlocks_listing_id_fkey"
-            columns: ["listing_id"]
-            isOneToOne: false
-            referencedRelation: "market_listings"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      market_wallet_entries: {
-        Row: {
-          account_id: string
-          amount: number
-          created_at: string
-          id: string
-          kind: string
-          listing_id: string | null
-        }
-        Insert: {
-          account_id: string
-          amount: number
-          created_at?: string
-          id?: string
-          kind: string
-          listing_id?: string | null
-        }
-        Update: {
-          account_id?: string
-          amount?: number
-          created_at?: string
-          id?: string
-          kind?: string
-          listing_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "market_wallet_entries_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "market_accounts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "market_wallet_entries_listing_id_fkey"
-            columns: ["listing_id"]
-            isOneToOne: false
-            referencedRelation: "market_listings"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -310,6 +233,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin"],
+    },
   },
 } as const
