@@ -152,7 +152,7 @@ export const adminDeleteListing = createServerFn({ method: "POST" })
 
 export const adminGetConfig = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<Record<string, Record<string, unknown>>> => {
+  .handler(async ({ context }): Promise<Record<string, Record<string, string | number | boolean>>> => {
     const { requireAdmin, getSettings } = await import("./market.server");
     await requireAdmin(context.userId);
     return getSettings();
@@ -160,7 +160,7 @@ export const adminGetConfig = createServerFn({ method: "GET" })
 
 export const adminSaveConfig = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { key: string; value: Record<string, unknown> }) => input)
+  .inputValidator((input: { key: string; value: Record<string, string | number | boolean> }) => input)
   .handler(async ({ data, context }): Promise<{ ok: true }> => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { requireAdmin } = await import("./market.server");

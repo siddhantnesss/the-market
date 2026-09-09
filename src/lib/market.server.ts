@@ -119,11 +119,14 @@ export async function requireAdmin(userId: string): Promise<void> {
   if (!data) throw new Error("Forbidden");
 }
 
-export async function getSettings(): Promise<Record<string, Record<string, unknown>>> {
+export type ConfigValue = Record<string, string | number | boolean>;
+export type SiteConfig = Record<string, ConfigValue>;
+
+export async function getSettings(): Promise<SiteConfig> {
   const { data } = await supabaseAdmin.from("site_settings").select("key, value");
-  const out: Record<string, Record<string, unknown>> = {};
+  const out: SiteConfig = {};
   for (const row of data ?? []) {
-    out[row.key] = (row.value ?? {}) as Record<string, unknown>;
+    out[row.key] = (row.value ?? {}) as ConfigValue;
   }
   return out;
 }
