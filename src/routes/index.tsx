@@ -1,17 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  enterMarket,
-  getAccount,
-  renameAccount,
-  listMarket,
+  DEFAULT_COPY,
+  DEFAULT_LIMITS,
   createListing,
-  unlockListing,
-  type Account,
-  type Listing,
+  getMarket,
+  unlockContact,
+  type MarketListing,
 } from "@/lib/market.functions";
+import {
+  downscale,
+  fileToDataUrl,
+  matches,
+  readUnlocked,
+  rememberUnlocked,
+  renderCrop,
+  type PickedPhoto,
+} from "@/lib/market-client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -20,45 +28,454 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "List what you have to sell and let serious buyers find you. Enter with your name and a ₹1,000 trial balance.",
+          "A plain, open market. Post what you have to sell in seconds. Every listing stays on for 24 hours.",
       },
       { property: "og:title", content: "THE MARKET — We help you find buyers." },
       {
         property: "og:description",
-        content: "List what you have to sell and let serious buyers find you.",
+        content: "A plain, open market. Post what you have to sell. Listings last 24 hours.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: Index,
+  component: Page,
 });
 
-const CLIENT_KEY = "the-market:client";
-
-function getClientId(): string {
-  let id = window.localStorage.getItem(CLIENT_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    window.localStorage.setItem(CLIENT_KEY, id);
-  }
-  return id;
+function Signature({ handle, url }: { handle: string; url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="fixed bottom-4 left-4 z-20 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+    >
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="3" y="3" width="18" height="18" rx="5" />
+        <circle cx="12" cy="12" r="4" />
+        <circle cx="17.5" cy="6.5" r="0.9" fill="currentColor" stroke="none" />
+      </svg>
+      <span>{handle}</span>
+    </a>
+  );
 }
 
-/* ---------------- shared pieces ---------------- */
+function Page() {
+  const [entered, setEntered] = useState(false);
+  const fetchMarket = useServerFn(getMarket);
+  const { data } = useQuery({
+    queryKey: ["market"],
+    queryFn: () => fetchMarket(),
+    refetchInterval: entered ? 10000 : false,
+    refetchOnWindowFocus: true,
+  });
 
-function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  const copy = { ...DEFAULT_COPY, ...(data?.copy ?? {}) };
+  const limits = { ...DEFAULT_LIMITS, ...(data?.limits ?? {}) };
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      {entered ? (
+        <Market copy={copy} limits={limits} incoming={data?.listings ?? []} />
+      ) : (
+        <section className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+          <h1 className="text-xl tracking-[0.18em]">{copy["brand"]}</h1>
+          <p className="mt-6 text-sm text-muted-foreground">{copy["tagline"]}</p>
+          <button
+            type="button"
+            onClick={() => setEntered(true)}
+            className="mt-16 border border-[color:var(--muted-foreground)] px-8 py-2 text-sm hover:bg-secondary"
+          >
+            {copy["enterLabel"]}
+          </button>
+        </section>
+      )}
+      <Signature handle={copy["instagramHandle"] ?? ""} url={copy["instagramUrl"] ?? "#"} />
+    </main>
+  );
+}
+
+type Copy = Record<string, string>;
+type Limits = typeof DEFAULT_LIMITS;
+
+function Market({
+  copy,
+  limits,
+  incoming,
+}: {
+  copy: Copy;
+  limits: Limits;
+  incoming: MarketListing[];
+}) {
+  const [shown, setShown] = useState<MarketListing[]>([]);
+  const [pending, setPending] = useState<MarketListing[]>([]);
+  const [query, setQuery] = useState("");
+  const [selling, setSelling] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const seeded = useRef(false);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (!seeded.current) {
+      seeded.current = true;
+      setShown(incoming);
+      return;
+    }
+    const known = new Set([...shown, ...pending].map((l) => l.id));
+    const fresh = incoming.filter((l) => !known.has(l.id));
+    const live = new Set(incoming.map((l) => l.id));
+    setShown((prev) => prev.filter((l) => live.has(l.id)));
+    setPending((prev) => [...prev.filter((l) => live.has(l.id)), ...fresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming]);
+
+  const visible = useMemo(
+    () =>
+      shown.filter(
+        (l) => new Date(l.expiresAt).getTime() > now && matches(query, l.productName, l.specifications),
+      ),
+    [shown, query, now],
+  );
+
+  const pendingMatching = useMemo(
+    () => pending.filter((l) => matches(query, l.productName, l.specifications)),
+    [pending, query],
+  );
+
+  const showPending = useCallback(() => {
+    setShown((prev) => {
+      const ids = new Set(prev.map((l) => l.id));
+      return [...pending.filter((l) => !ids.has(l.id)), ...prev];
+    });
+    setPending([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [pending]);
+
+  const onCreated = useCallback((listing: MarketListing) => {
+    setShown((prev) => [listing, ...prev.filter((l) => l.id !== listing.id)]);
+    setSelling(false);
+  }, []);
+
+  return (
+    <div className="mx-auto w-full max-w-[540px] px-5 pb-24 pt-10 md:max-w-[38%]">
+      {selling ? (
+        <SellForm copy={copy} limits={limits} onCancel={() => setSelling(false)} onCreated={onCreated} />
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setSelling(true)}
+            className="w-full border border-[color:var(--muted-foreground)] px-4 py-2 text-sm hover:bg-secondary"
+          >
+            {copy["sellButton"]}
+          </button>
+
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={copy["searchPlaceholder"]}
+            aria-label={copy["searchPlaceholder"]}
+            className="mt-6 w-full border border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-[color:var(--muted-foreground)]"
+          />
+
+          {pendingMatching.length > 0 && (
+            <button
+              type="button"
+              onClick={showPending}
+              className="mt-4 w-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {pendingMatching.length === 1 ? "1 new listing" : `${pendingMatching.length} new listings`}
+            </button>
+          )}
+
+          <div className="mt-8 space-y-6">
+            {visible.map((listing) => (
+              <ListingCard key={listing.id} listing={listing} copy={copy} />
+            ))}
+          </div>
+
+          {visible.length === 0 && (
+            <p className="mt-10 text-sm text-muted-foreground">
+              {query.trim() && shown.length > 0 ? copy["noResults"] : copy["emptyMarket"]}
+            </p>
+          )}
+
+          <p className="mt-16 text-[11px] text-muted-foreground/70">{copy["expiryNote"]}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ListingCard({ listing, copy }: { listing: MarketListing; copy: Copy }) {
+  const unlock = useServerFn(unlockContact);
+  const [contact, setContact] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (readUnlocked().includes(listing.id) && listing.hasContact) {
+      void unlock({ data: { id: listing.id } })
+        .then((r) => setContact(r.contact))
+        .catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing.id]);
+
+  const doUnlock = async () => {
+    try {
+      const r = await unlock({ data: { id: listing.id } });
+      rememberUnlocked(listing.id);
+      setContact(r.contact);
+    } catch {
+      /* listing gone */
+    }
+  };
+
+  return (
+    <article className="border border-border p-4">
+      {listing.productName && <h2 className="text-sm font-bold">{listing.productName}</h2>}
+      {listing.specifications && (
+        <p className="mt-1 text-sm text-muted-foreground">{listing.specifications}</p>
+      )}
+
+      {listing.photos.length > 0 && (
+        <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
+          {listing.photos.map((src, i) => (
+            <button key={src} type="button" onClick={() => setViewer(i)} className="shrink-0 snap-start">
+              <img
+                src={src}
+                alt={listing.productName || "listing photo"}
+                loading="lazy"
+                className="h-24 w-24 border border-border object-cover"
+              />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {listing.hasContact &&
+        (contact ? (
+          <p className="mt-3 text-sm">
+            <span className="underline">{copy["contactLabel"]}</span>{" "}
+            <span className="font-bold break-words">{contact}</span>
+          </p>
+        ) : (
+          <button type="button" onClick={doUnlock} className="mt-3 text-sm underline">
+            {copy["unlockLabel"]}
+          </button>
+        ))}
+
+      {viewer !== null && (
+        <PhotoViewer photos={listing.photos} index={viewer} onClose={() => setViewer(null)} />
+      )}
+    </article>
+  );
+}
+
+function PhotoViewer({
+  photos,
+  index,
+  onClose,
+}: {
+  photos: string[];
+  index: number;
+  onClose: () => void;
+}) {
+  const [i, setI] = useState(index);
+  const startX = useRef<number | null>(null);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-6"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-background/95 p-6"
       onClick={onClose}
+      onTouchStart={(e) => {
+        startX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const x0 = startX.current;
+        const x1 = e.changedTouches[0]?.clientX ?? null;
+        if (x0 !== null && x1 !== null && Math.abs(x1 - x0) > 40) {
+          setI((prev) => Math.min(photos.length - 1, Math.max(0, prev + (x1 < x0 ? 1 : -1))));
+        }
+      }}
     >
-      <div
-        className="w-full max-w-sm border border-border bg-background p-6"
+      <img
+        src={photos[i]}
+        alt=""
         onClick={(e) => e.stopPropagation()}
-      >
-        {children}
+        className="max-h-[80vh] max-w-full border border-border object-contain"
+      />
+    </div>
+  );
+}
+
+function SellForm({
+  copy,
+  limits,
+  onCancel,
+  onCreated,
+}: {
+  copy: Copy;
+  limits: Limits;
+  onCancel: () => void;
+  onCreated: (l: MarketListing) => void;
+}) {
+  const create = useServerFn(createListing);
+  const [productName, setProductName] = useState("");
+  const [specifications, setSpecifications] = useState("");
+  const [contact, setContact] = useState("");
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const canSubmit =
+    Boolean(productName.trim() || specifications.trim() || contact.trim() || photos.length) && !busy;
+
+  const addFiles = async (files: FileList | null) => {
+    if (!files) return;
+    const room = limits.maxPhotos - photos.length;
+    const picked: PickedPhoto[] = [];
+    for (const file of Array.from(files).slice(0, Math.max(0, room))) {
+      const raw = await fileToDataUrl(file);
+      const source = await downscale(raw);
+      picked.push({
+        id: crypto.randomUUID(),
+        source,
+        mode: "original",
+        crop: { zoom: 1, x: 0, y: 0 },
+        preview: source,
+      });
+    }
+    setPhotos((prev) => [...prev, ...picked]);
+  };
+
+  const setCrop = async (id: string, mode: "original" | "cropped", zoom: number) => {
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, mode, crop: { ...p.crop, zoom } } : p)));
+    const target = photos.find((p) => p.id === id);
+    if (!target) return;
+    const preview =
+      mode === "original" ? target.source : await renderCrop(target.source, { ...target.crop, zoom });
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, preview } : p)));
+  };
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    try {
+      const listing = await create({
+        data: {
+          productName: productName.trim(),
+          specifications: specifications.trim(),
+          contact: contact.trim(),
+          photos: photos.map((p) => p.preview),
+        },
+      });
+      onCreated(listing);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4">
+        <h2 className="text-sm">{copy["sellHeading"]}</h2>
+        <button type="button" aria-label="cancel" onClick={onCancel} className="text-sm leading-none">
+          ×
+        </button>
       </div>
+
+      <div className="mt-8 space-y-6">
+        <Field
+          label="Product Name"
+          value={productName}
+          onChange={setProductName}
+          max={limits.productNameMax}
+        />
+        <Field
+          label="Specifications"
+          value={specifications}
+          onChange={setSpecifications}
+          max={limits.specificationsMax}
+        />
+
+        <div>
+          <p className="text-xs text-muted-foreground">Photos</p>
+          <label className="mt-2 inline-block cursor-pointer border border-[color:var(--muted-foreground)] px-3 py-1.5 text-xs">
+            {copy["photosLabel"]}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {photos.length > 0 && (
+            <div className="mt-3 space-y-3">
+              {photos.map((p) => (
+                <div key={p.id} className="flex items-start gap-3">
+                  <img src={p.preview} alt="" className="h-20 w-20 border border-border object-cover" />
+                  <div className="text-xs">
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void setCrop(p.id, "original", 1)}
+                        className={p.mode === "original" ? "underline" : "text-muted-foreground"}
+                      >
+                        Original
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void setCrop(p.id, "cropped", Math.max(1, p.crop.zoom))}
+                        className={p.mode === "cropped" ? "underline" : "text-muted-foreground"}
+                      >
+                        Cropped
+                      </button>
+                    </div>
+                    {p.mode === "cropped" && (
+                      <input
+                        type="range"
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        value={p.crop.zoom}
+                        onChange={(e) => void setCrop(p.id, "cropped", Number(e.target.value))}
+                        className="mt-2 w-32"
+                        aria-label="zoom"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPhotos((prev) => prev.filter((x) => x.id !== p.id))}
+                      className="mt-2 block text-muted-foreground underline"
+                    >
+                      remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Field label="Contact" value={contact} onChange={setContact} max={limits.contactMax} />
+      </div>
+
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={() => void submit()}
+        className="mt-10 w-full border border-[color:var(--muted-foreground)] px-4 py-2 text-sm disabled:opacity-40"
+      >
+        {copy["submitLabel"]}
+      </button>
     </div>
   );
 }
@@ -67,460 +484,28 @@ function Field({
   label,
   value,
   onChange,
-  placeholder,
-  textarea,
+  max,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  placeholder?: string;
-  textarea?: boolean;
+  max: number;
 }) {
-  const cls =
-    "mt-2 w-full border-b border-border bg-transparent py-2 font-display text-lg text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent";
   return (
-    <label className="block">
-      <span className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+    <div>
+      <label className="text-xs text-muted-foreground" htmlFor={label}>
         {label}
-      </span>
-      {textarea ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          aria-label={label}
-          rows={3}
-          className={`${cls} resize-none`}
-        />
-      ) : (
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          aria-label={label}
-          className={cls}
-        />
-      )}
-    </label>
-  );
-}
-
-/* ---------------- entry ---------------- */
-
-function Entry({ onEnter, busy }: { onEnter: (name: string) => void; busy: boolean }) {
-  const [value, setValue] = useState("");
-  return (
-    <div className="flex min-h-screen flex-col justify-center bg-background px-6 py-16">
-      <form
-        className="mx-auto w-full max-w-md"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (value.trim()) onEnter(value.trim());
-        }}
-      >
-        <h1 className="font-display text-5xl font-black tracking-tight text-foreground">
-          THE MARKET
-        </h1>
-        <p className="mt-6 font-display text-2xl text-foreground">We help you find buyers.</p>
-
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Your name"
-          aria-label="Your name"
-          autoFocus
-          className="mt-14 w-full border-b-2 border-foreground bg-transparent py-3 font-display text-2xl text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-accent"
-        />
-
-        <p className="mt-6 font-mono text-xs tracking-widest text-muted-foreground uppercase">
-          Trial money: ₹1,000
-        </p>
-
-        <button
-          type="submit"
-          disabled={!value.trim() || busy}
-          className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40"
-        >
-          {busy ? "Entering" : "Enter"}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-/* ---------------- listings ---------------- */
-
-function ListingRow({
-  listing,
-  onUnlock,
-  busy,
-}: {
-  listing: Listing;
-  onUnlock: (l: Listing) => void;
-  busy: boolean;
-}) {
-  return (
-    <article className="border-t border-border py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 className="font-display text-2xl leading-snug text-foreground">{listing.title}</h3>
-        {listing.price ? (
-          <p className="font-mono text-sm text-foreground">{listing.price}</p>
-        ) : null}
-      </div>
-
-      <p className="mt-3 max-w-2xl font-display text-lg leading-relaxed text-foreground/80">
-        {listing.details}
-      </p>
-
-      <p className="mt-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-        {[listing.quantity, listing.location].filter(Boolean).join(" · ")}
-        {listing.isSample ? (listing.quantity || listing.location ? " · sample" : "sample") : ""}
-      </p>
-
-      <div className="mt-5">
-        {listing.unlocked && listing.contact ? (
-          <p className="font-mono text-sm text-foreground">
-            {listing.mine ? "Your contact — " : ""}
-            {listing.contact}
-          </p>
-        ) : (
-          <div className="flex flex-wrap items-center gap-4">
-            <p className="font-mono text-xs text-muted-foreground">
-              Seller: {listing.sellerName.split(" ")[0]} ····
-            </p>
-            <button
-              onClick={() => onUnlock(listing)}
-              disabled={busy}
-              className="font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 transition-colors hover:text-accent disabled:opacity-40"
-            >
-              Get contact — ₹1,000
-            </button>
-          </div>
-        )}
-      </div>
-    </article>
-  );
-}
-
-/* ---------------- main ---------------- */
-
-function Index() {
-  const enterFn = useServerFn(enterMarket);
-  const getAccountFn = useServerFn(getAccount);
-  const renameFn = useServerFn(renameAccount);
-  const listFn = useServerFn(listMarket);
-  const createFn = useServerFn(createListing);
-  const unlockFn = useServerFn(unlockListing);
-
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [account, setAccount] = useState<Account | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [mode, setMode] = useState<"buy" | "sell">("buy");
-  const [lowBalance, setLowBalance] = useState(false);
-  const [confirmUnlock, setConfirmUnlock] = useState<Listing | null>(null);
-  const [listed, setListed] = useState(false);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const [form, setForm] = useState({
-    title: "",
-    details: "",
-    price: "",
-    quantity: "",
-    location: "",
-    contact: "",
-  });
-
-  useEffect(() => {
-    const id = getClientId();
-    setClientId(id);
-    void (async () => {
-      try {
-        const acc = await getAccountFn({ data: { clientId: id } });
-        setAccount(acc);
-        if (acc) setListings(await listFn({ data: { clientId: id } }));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [getAccountFn, listFn]);
-
-  const refresh = async (id: string) => {
-    const [acc, rows] = await Promise.all([
-      getAccountFn({ data: { clientId: id } }),
-      listFn({ data: { clientId: id } }),
-    ]);
-    setAccount(acc);
-    setListings(rows);
-  };
-
-  if (loading) return <div className="min-h-screen bg-background" />;
-
-  if (!account || !clientId) {
-    return (
-      <Entry
-        busy={busy}
-        onEnter={async (name) => {
-          if (!clientId) return;
-          setBusy(true);
-          try {
-            const acc = await enterFn({ data: { clientId, name } });
-            setAccount(acc);
-            setListings(await listFn({ data: { clientId } }));
-          } finally {
-            setBusy(false);
-          }
-        }}
+      </label>
+      <input
+        id={label}
+        value={value}
+        maxLength={max}
+        onChange={(e) => onChange(e.target.value.slice(0, max))}
+        className="mt-1 w-full border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-[color:var(--muted-foreground)]"
       />
-    );
-  }
-
-  const submitListing = async () => {
-    if (!form.title.trim() || !form.details.trim() || !form.contact.trim()) return;
-    setBusy(true);
-    try {
-      const res = await createFn({ data: { clientId, ...form } });
-      if (!res.ok) {
-        if (res.reason === "balance") setLowBalance(true);
-        return;
-      }
-      setForm({ title: "", details: "", price: "", quantity: "", location: "", contact: "" });
-      setListed(true);
-      await refresh(clientId);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const doUnlock = async (listing: Listing) => {
-    setBusy(true);
-    try {
-      const res = await unlockFn({ data: { clientId, listingId: listing.id } });
-      setConfirmUnlock(null);
-      if (!res.ok) {
-        if (res.reason === "balance") setLowBalance(true);
-        return;
-      }
-      await refresh(clientId);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const myListings = listings.filter((l) => l.mine);
-
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 md:py-12">
-        <header className="flex items-baseline justify-between gap-4">
-          <h1 className="font-display text-2xl font-black tracking-tight text-foreground">
-            THE MARKET
-          </h1>
-          <p className="font-mono text-sm text-foreground">₹{account.balance.toLocaleString("en-IN")}</p>
-        </header>
-
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-          {account.name} ·{" "}
-          <button
-            onClick={() => {
-              setNameDraft(account.name);
-              setEditingName(true);
-            }}
-            className="underline underline-offset-2 hover:text-accent"
-          >
-            edit name
-          </button>
-        </p>
-
-        <nav className="mt-10 flex gap-8">
-          {(["buy", "sell"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => {
-                setMode(m);
-                setListed(false);
-              }}
-              className={`border-b-2 pb-2 font-mono text-xs tracking-widest uppercase transition-colors ${
-                mode === m
-                  ? "border-foreground text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {m === "buy" ? "Buy" : "Sell"}
-            </button>
-          ))}
-        </nav>
-
-        {mode === "buy" ? (
-          <section className="mt-8">
-            {listings.length === 0 ? (
-              <p className="border-t border-border py-8 font-display text-lg text-muted-foreground">
-                nothing on offer yet
-              </p>
-            ) : (
-              listings.map((l) => (
-                <ListingRow
-                  key={l.id}
-                  listing={l}
-                  busy={busy}
-                  onUnlock={(x) =>
-                    account.balance < 1000 ? setLowBalance(true) : setConfirmUnlock(x)
-                  }
-                />
-              ))
-            )}
-          </section>
-        ) : (
-          <section className="mt-8">
-            {listed ? (
-              <div className="border-t border-border py-8">
-                <p className="font-display text-2xl text-foreground">You are in the market.</p>
-                <p className="mt-2 font-mono text-xs text-muted-foreground">
-                  ₹1,000 paid. Buyers pay ₹1,000 each to reach you.
-                </p>
-                <button
-                  onClick={() => {
-                    setListed(false);
-                    setMode("buy");
-                  }}
-                  className="mt-6 font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 hover:text-accent"
-                >
-                  See the market
-                </button>
-              </div>
-            ) : (
-              <div className="border-t border-border pt-8">
-                <h2 className="font-display text-2xl text-foreground">What are you selling?</h2>
-                <div className="mt-8 space-y-7">
-                  <Field
-                    label="What you have"
-                    value={form.title}
-                    onChange={(v) => setForm((f) => ({ ...f, title: v }))}
-                    placeholder="Cotton yarn 30s combed"
-                  />
-                  <Field
-                    label="Details"
-                    textarea
-                    value={form.details}
-                    onChange={(v) => setForm((f) => ({ ...f, details: v }))}
-                    placeholder="Quality, condition, how soon you can supply"
-                  />
-                  <Field
-                    label="Price"
-                    value={form.price}
-                    onChange={(v) => setForm((f) => ({ ...f, price: v }))}
-                    placeholder="₹268 / kg"
-                  />
-                  <Field
-                    label="Quantity"
-                    value={form.quantity}
-                    onChange={(v) => setForm((f) => ({ ...f, quantity: v }))}
-                    placeholder="18 tonnes"
-                  />
-                  <Field
-                    label="Where"
-                    value={form.location}
-                    onChange={(v) => setForm((f) => ({ ...f, location: v }))}
-                    placeholder="Ludhiana, Punjab"
-                  />
-                  <Field
-                    label="Your contact (shown only to paid buyers)"
-                    value={form.contact}
-                    onChange={(v) => setForm((f) => ({ ...f, contact: v }))}
-                    placeholder="Name, phone, email"
-                  />
-                </div>
-
-                <button
-                  onClick={submitListing}
-                  disabled={
-                    busy || !form.title.trim() || !form.details.trim() || !form.contact.trim()
-                  }
-                  className="mt-10 w-full bg-primary py-4 font-mono text-sm tracking-widest text-primary-foreground uppercase transition-colors enabled:hover:bg-accent disabled:opacity-40 sm:w-auto sm:px-10"
-                >
-                  {busy ? "Listing" : "List it — ₹1,000"}
-                </button>
-
-                {myListings.length > 0 ? (
-                  <div className="mt-16">
-                    <p className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
-                      Your listings
-                    </p>
-                    {myListings.map((l) => (
-                      <ListingRow key={l.id} listing={l} busy={busy} onUnlock={() => {}} />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </section>
-        )}
-      </div>
-
-      {confirmUnlock ? (
-        <Modal onClose={() => setConfirmUnlock(null)}>
-          <p className="font-display text-xl text-foreground">{confirmUnlock.title}</p>
-          <p className="mt-3 font-mono text-xs text-muted-foreground">
-            ₹1,000 to see the seller&apos;s contact details.
-          </p>
-          <div className="mt-8 flex gap-6">
-            <button
-              onClick={() => doUnlock(confirmUnlock)}
-              disabled={busy}
-              className="bg-primary px-6 py-3 font-mono text-xs tracking-widest text-primary-foreground uppercase enabled:hover:bg-accent disabled:opacity-40"
-            >
-              Pay ₹1,000
-            </button>
-            <button
-              onClick={() => setConfirmUnlock(null)}
-              className="font-mono text-xs tracking-widest text-muted-foreground uppercase hover:text-foreground"
-            >
-              Not now
-            </button>
-          </div>
-        </Modal>
-      ) : null}
-
-      {lowBalance ? (
-        <Modal onClose={() => setLowBalance(false)}>
-          <p className="font-display text-xl text-foreground">not enough balance</p>
-          <button
-            onClick={() => setLowBalance(false)}
-            className="mt-8 font-mono text-xs tracking-widest text-muted-foreground uppercase hover:text-foreground"
-          >
-            Close
-          </button>
-        </Modal>
-      ) : null}
-
-      {editingName ? (
-        <Modal onClose={() => setEditingName(false)}>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!nameDraft.trim()) return;
-              const acc = await renameFn({ data: { clientId, name: nameDraft.trim() } });
-              setAccount(acc);
-              setEditingName(false);
-            }}
-          >
-            <input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              aria-label="Your name"
-              autoFocus
-              className="w-full border-b-2 border-foreground bg-transparent py-2 font-display text-xl text-foreground outline-none"
-            />
-            <button
-              type="submit"
-              className="mt-8 font-mono text-xs tracking-widest text-foreground uppercase underline underline-offset-4 hover:text-accent"
-            >
-              Save
-            </button>
-          </form>
-        </Modal>
-      ) : null}
+      <p className="mt-1 text-[11px] text-muted-foreground/70">
+        {value.length}/{max}
+      </p>
     </div>
   );
 }
